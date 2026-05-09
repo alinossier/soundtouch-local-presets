@@ -20,6 +20,14 @@ You can change those to any direct MP3 radio streams you like.
 
 This is easiest on Linux. It may work elsewhere, but Docker networking is simpler and more reliable on Linux for this kind of local-device project.
 
+## Tested With
+
+This project has been tested with:
+
+- Bose SoundTouch 20
+
+It should also work with other SoundTouch models that expose the same local WebSocket and UPnP/DLNA interfaces, but those have not been personally verified yet.
+
 ## The Short Version
 
 1. Install Docker.
