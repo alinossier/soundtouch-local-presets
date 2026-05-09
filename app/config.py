@@ -27,6 +27,13 @@ class ServiceConfig:
 
 
 @dataclass(frozen=True)
+class ApiConfig:
+    enabled: bool = True
+    host: str = "0.0.0.0"
+    port: int = 8765
+
+
+@dataclass(frozen=True)
 class PresetConfig:
     id: int
     name: str
@@ -41,6 +48,7 @@ class PresetConfig:
 class AppConfig:
     speaker: SpeakerConfig
     service: ServiceConfig
+    api: ApiConfig
     presets: dict[int, PresetConfig]
 
 
@@ -85,6 +93,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 
     speaker_data = data.get("speaker") or {}
     service_data = data.get("service") or {}
+    api_data = data.get("api") or {}
     presets_data = data.get("presets") or {}
 
     speaker = SpeakerConfig(
@@ -113,6 +122,12 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         ).upper(),
     )
 
+    api = ApiConfig(
+        enabled=_env_bool("API_ENABLED", bool(api_data.get("enabled", True))),
+        host=_env_str("API_HOST", api_data.get("host")) or "0.0.0.0",
+        port=int(os.getenv("API_PORT", api_data.get("port", 8765))),
+    )
+
     presets: dict[int, PresetConfig] = {}
     for raw_id, raw_preset in presets_data.items():
         preset_id = int(raw_id)
@@ -138,4 +153,4 @@ def load_config(path: str | Path | None = None) -> AppConfig:
             source=source,
         )
 
-    return AppConfig(speaker=speaker, service=service, presets=presets)
+    return AppConfig(speaker=speaker, service=service, api=api, presets=presets)

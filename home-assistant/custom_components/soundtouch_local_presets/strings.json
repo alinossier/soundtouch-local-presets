@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SoundTouch Local Presets",
+        "description": "Enter the URL for the SoundTouch Local Presets daemon.",
+        "data": {
+          "url": "Daemon URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the daemon API."
+    },
+    "abort": {
+      "already_configured": "This daemon URL is already configured."
+    }
+  }
+}

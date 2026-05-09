@@ -11,6 +11,8 @@ The default example is:
 
 You can change those to any direct MP3 radio streams you like.
 
+This branch also includes an experimental Home Assistant integration. It exposes your configured presets as receiver sources, so Apple Home can show options like `FIP Radio`, `FIP Jazz`, and `AUX` through Home Assistant's HomeKit Bridge.
+
 ## What You Need
 
 - A Bose SoundTouch speaker.
@@ -198,9 +200,112 @@ SPEAKER_NAME=Kitchen
 SPEAKER_PREFERRED_IP=192.168.1.50
 LISTENER_ONLY=false
 ENFORCE_PRESETS=true
+API_ENABLED=true
+API_HOST=0.0.0.0
+API_PORT=8765
 ```
 
 The `.env` file is ignored by git, so it is safe for your personal settings.
+
+## Experimental HTTP API
+
+The daemon can also expose a small local API. It is enabled by default in `config.yaml`:
+
+```yaml
+api:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8765
+```
+
+Useful checks:
+
+```bash
+curl http://localhost:8765/api/state
+curl http://localhost:8765/api/presets
+curl -X POST http://localhost:8765/api/presets/1/play
+curl -X POST http://localhost:8765/api/speaker/volume-up
+curl -X POST http://localhost:8765/api/speaker/volume-down
+curl -X POST http://localhost:8765/api/speaker/aux
+```
+
+There is also:
+
+```bash
+curl -X POST http://localhost:8765/api/speaker/power-toggle
+```
+
+Use that one carefully. The SoundTouch API exposes power as a toggle, so the daemon cannot always know whether that means on or off.
+
+## Experimental Home Assistant And HomeKit Receiver
+
+This repo includes a small Home Assistant custom integration here:
+
+```text
+home-assistant/custom_components/soundtouch_local_presets
+```
+
+It creates one `media_player` entity named `Bose SoundTouch`.
+
+That entity:
+
+- Shows each configured preset name as a source.
+- Adds `AUX` as another source.
+- Plays a preset when you select its source.
+- Sends volume up and volume down commands to the speaker.
+- Uses the Bose power toggle for both turn on and turn off.
+
+To try it:
+
+1. Make sure the daemon is running and the API works:
+
+   ```bash
+   curl http://SERVER_IP:8765/api/presets
+   ```
+
+2. Copy this folder into your Home Assistant config folder:
+
+   ```text
+   home-assistant/custom_components/soundtouch_local_presets
+   ```
+
+   It should end up at:
+
+   ```text
+   /config/custom_components/soundtouch_local_presets
+   ```
+
+3. Restart Home Assistant.
+
+4. In Home Assistant, go to:
+
+   ```text
+   Settings -> Devices & services -> Add integration
+   ```
+
+5. Search for:
+
+   ```text
+   SoundTouch Local Presets
+   ```
+
+6. Enter the daemon URL:
+
+   ```text
+   http://SERVER_IP:8765
+   ```
+
+   Use the IP address of the machine running this Docker service, not the Bose speaker IP.
+
+7. Confirm the new `Bose SoundTouch` media player shows sources matching your `config.yaml` presets.
+
+To expose it to Apple Home:
+
+1. In Home Assistant, set up the HomeKit Bridge integration.
+2. Include the `Bose SoundTouch` media player entity.
+3. Pair the bridge with Apple Home.
+
+Apple Home should see it as a receiver-style media accessory. This is experimental, and Apple/HomeKit may expose different controls depending on your Home Assistant version and Apple device.
 
 ## Test Without Playing Anything
 
@@ -233,6 +338,7 @@ When that works, set `listener_only` back to `false`.
 
 The service uses local APIs exposed by Bose SoundTouch speakers:
 
+- Port `8765`: daemon HTTP API for local tools and Home Assistant.
 - Port `8090`: SoundTouch HTTP API for `/info`, `/presets`, and `/nowPlaying`.
 - Port `8080`: SoundTouch WebSocket events using the `gabbo` subprotocol.
 - Port `8091`: UPnP/DLNA playback using `AVTransport`.

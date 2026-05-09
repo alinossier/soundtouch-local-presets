@@ -148,6 +148,57 @@ async def select_content(session: aiohttp.ClientSession, ip: str, preset: Preset
         return text
 
 
+async def send_key(session: aiohttp.ClientSession, ip: str, key: str) -> None:
+    await _send_key_state(session, ip, key, "press")
+    await _send_key_state(session, ip, key, "release")
+
+
+async def _send_key_state(session: aiohttp.ClientSession, ip: str, key: str, state: str) -> str:
+    payload = f'<key state="{escape(state)}" sender="Gabbo">{escape(key)}</key>'
+    url = f"http://{ip}:8090/key"
+    async with session.post(
+        url,
+        data=payload.encode("utf-8"),
+        headers={"Content-Type": "application/xml"},
+        timeout=aiohttp.ClientTimeout(total=5),
+    ) as response:
+        text = await response.text()
+        if response.status >= 300:
+            raise BoseError(f"POST /key {key} {state} on {ip} returned HTTP {response.status}: {text[:500]}")
+        return text
+
+
+async def volume_up(session: aiohttp.ClientSession, ip: str) -> None:
+    LOGGER.info("Sending volume up to %s", ip)
+    await send_key(session, ip, "VOLUME_UP")
+
+
+async def volume_down(session: aiohttp.ClientSession, ip: str) -> None:
+    LOGGER.info("Sending volume down to %s", ip)
+    await send_key(session, ip, "VOLUME_DOWN")
+
+
+async def power_toggle(session: aiohttp.ClientSession, ip: str) -> None:
+    LOGGER.info("Sending power toggle to %s", ip)
+    await send_key(session, ip, "POWER")
+
+
+async def select_aux(session: aiohttp.ClientSession, ip: str) -> str:
+    payload = '<ContentItem source="AUX" sourceAccount="AUX"><itemName>AUX IN</itemName></ContentItem>'
+    url = f"http://{ip}:8090/select"
+    LOGGER.info("Selecting AUX on %s", ip)
+    async with session.post(
+        url,
+        data=payload.encode("utf-8"),
+        headers={"Content-Type": "application/xml"},
+        timeout=aiohttp.ClientTimeout(total=10),
+    ) as response:
+        text = await response.text()
+        if response.status >= 300:
+            raise BoseError(f"POST /select AUX on {ip} returned HTTP {response.status}: {text[:500]}")
+        return text
+
+
 def _soap_envelope(action: str, body: str) -> str:
     return (
         '<?xml version="1.0"?>'

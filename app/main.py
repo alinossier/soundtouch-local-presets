@@ -11,6 +11,7 @@ from defusedxml import ElementTree
 import websockets
 
 from app import bose
+from app.api import create_api_server
 from app.config import AppConfig, load_config
 from app.discovery import discover_speaker
 from app.logging import configure_logging
@@ -27,39 +28,53 @@ class PresetDaemon:
         self._stop = asyncio.Event()
         self._last_trigger_at: dict[int, float] = {}
         self._active_ip: str | None = None
+        self.active_source: str | None = None
 
     def stop(self) -> None:
         self._stop.set()
+
+    @property
+    def active_ip(self) -> str | None:
+        return self._active_ip
 
     async def run(self) -> None:
         mode = "listener-only debug" if self.config.service.listener_only else "playback"
         LOGGER.info("Starting SoundTouch preset daemon in %s mode", mode)
         async with aiohttp.ClientSession() as session:
+            api_server = None
+            if self.config.api.enabled:
+                api_server = create_api_server(self, session)
+                await api_server.start()
             backoff_index = 0
-            while not self._stop.is_set():
-                try:
-                    speaker = await discover_speaker(
-                        session,
-                        self.config.speaker.name,
-                        self.config.speaker.preferred_ip,
-                        self.last_known_ip,
-                    )
-                    self.last_known_ip = speaker.ip
-                    self._active_ip = speaker.ip
-                    if self.config.service.enforce_presets and not self.config.service.listener_only:
-                        await bose.ensure_presets(session, speaker.ip, self.config.presets)
-                    backoff_index = 0
-                    await self._listen_until_disconnect(session, speaker.ip)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - daemon loop must survive network errors.
-                    delay = BACKOFF_SECONDS[min(backoff_index, len(BACKOFF_SECONDS) - 1)]
-                    backoff_index += 1
-                    LOGGER.warning("Speaker connection loop failed: %s; retrying in %ss", exc, delay)
+            try:
+                while not self._stop.is_set():
                     try:
-                        await asyncio.wait_for(self._stop.wait(), timeout=delay)
-                    except TimeoutError:
-                        pass
+                        speaker = await discover_speaker(
+                            session,
+                            self.config.speaker.name,
+                            self.config.speaker.preferred_ip,
+                            self.last_known_ip,
+                        )
+                        self.last_known_ip = speaker.ip
+                        self._active_ip = speaker.ip
+                        if self.config.service.enforce_presets and not self.config.service.listener_only:
+                            await bose.ensure_presets(session, speaker.ip, self.config.presets)
+                        backoff_index = 0
+                        await self._listen_until_disconnect(session, speaker.ip)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 - daemon loop must survive network errors.
+                        self._active_ip = None
+                        delay = BACKOFF_SECONDS[min(backoff_index, len(BACKOFF_SECONDS) - 1)]
+                        backoff_index += 1
+                        LOGGER.warning("Speaker connection loop failed: %s; retrying in %ss", exc, delay)
+                        try:
+                            await asyncio.wait_for(self._stop.wait(), timeout=delay)
+                        except TimeoutError:
+                            pass
+            finally:
+                if api_server:
+                    await api_server.stop()
 
     async def _listen_until_disconnect(self, session: aiohttp.ClientSession, ip: str) -> None:
         websocket_url = f"ws://{ip}:8080"
@@ -92,6 +107,7 @@ class PresetDaemon:
                     await bose.ensure_presets(session, ip, self.config.presets)
             except Exception as exc:  # noqa: BLE001 - convert failed health into reconnect.
                 LOGGER.warning("Health check failed for %s: %s", ip, exc)
+                self._active_ip = None
                 await websocket.close()
                 return
             LOGGER.debug("Health check ok for %s (%s)", info.name, ip)
@@ -132,10 +148,17 @@ class PresetDaemon:
                 continue
 
             try:
-                await asyncio.sleep(0.5)
-                await play_preset(session, ip, preset)
+                await self.play_preset_id(session, preset_id)
             except Exception as exc:  # noqa: BLE001 - keep listening after playback failures.
                 LOGGER.exception("Playback failed for preset %s (%s): %s", preset_id, preset.name, exc)
+
+    async def play_preset_id(self, session: aiohttp.ClientSession, preset_id: int) -> None:
+        preset = self.config.presets[preset_id]
+        if not self._active_ip:
+            raise RuntimeError("Speaker is not connected yet")
+        await asyncio.sleep(0.5)
+        await play_preset(session, self._active_ip, preset)
+        self.active_source = preset.name
 
     def _detect_preset_ids(self, root: ElementTree.Element) -> set[int]:
         matches: set[int] = set()
