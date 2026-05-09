@@ -1,0 +1,11 @@
+services:
+  soundtouch-presets:
+    build: .
+    container_name: soundtouch-presets
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CONFIG_PATH=/app/config.yaml

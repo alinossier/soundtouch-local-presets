@@ -1,0 +1,27 @@
+speaker:
+  name: "YOUR-SOUNDTOUCH-SPEAKER-NAME"
+  preferred_ip: null
+
+service:
+  listener_only: false
+  enforce_presets: true
+  health_check_interval_seconds: 30
+  preset_debounce_seconds: 3
+  websocket_raw_log_level: "DEBUG"
+
+presets:
+  1:
+    name: "FIP Radio"
+    type: "internet_radio"
+    content_item_type: "stationurl"
+    stream_url: "http://icecast.radiofrance.fr/fip-midfi.mp3?id=radiofrance"
+    location: "http://icecast.radiofrance.fr/fip-midfi.mp3?id=radiofrance"
+    source: "LOCAL_INTERNET_RADIO"
+
+  2:
+    name: "FIP Jazz"
+    type: "internet_radio"
+    content_item_type: "stationurl"
+    stream_url: "http://icecast.radiofrance.fr/fipjazz-midfi.mp3?id=radiofrance"
+    location: "http://icecast.radiofrance.fr/fipjazz-midfi.mp3?id=radiofrance"
+    source: "LOCAL_INTERNET_RADIO"

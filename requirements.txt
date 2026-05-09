@@ -1,0 +1,5 @@
+aiohttp==3.12.14
+defusedxml==0.7.1
+pyyaml==6.0.2
+websockets==15.0.1
+zeroconf==0.147.0
