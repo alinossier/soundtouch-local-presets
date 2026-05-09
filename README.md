@@ -1,125 +1,96 @@
 # SoundTouch Local Presets
 
-Restore useful physical preset buttons on Bose SoundTouch speakers using only local network APIs.
+Make the physical preset buttons on a Bose SoundTouch speaker useful again.
 
-Bose SoundTouch devices still expose a surprisingly capable local API: HTTP control on port `8090`, a `gabbo` WebSocket event stream on port `8080`, and UPnP/DLNA media-renderer playback on port `8091`. This project combines those interfaces into a small Dockerized daemon that listens for physical preset button presses and plays configurable internet radio streams without requiring the Bose app or Bose cloud services to make the playback decision.
+If you woke up one day and your Bose SoundTouch presets no longer play the internet radio stations you expect, this project is for you. It runs on a small computer on your home network, listens for preset button presses from your speaker, and starts the radio stream you choose.
 
-The original use case was simple:
+The default example is:
 
-- Preset `1` should play FIP Radio.
-- Preset `2` should play FIP Jazz.
+- Preset `1` plays FIP Radio.
+- Preset `2` plays FIP Jazz.
 
-The project is intentionally generic, though. You can change the speaker name, preset slots, stream names, and stream URLs in `config.yaml`.
+You can change those to any direct MP3 radio streams you like.
 
-## Why This Exists
+## What You Need
 
-Some SoundTouch firmware still reports preset-button events locally, but custom internet-radio playback through the SoundTouch-native `/select` path can fail with errors such as `UNKNOWN_SOURCE_ERROR` or `INVALID_SOURCE`. This daemon uses the physical preset event as the trigger, then starts playback through the speaker's UPnP AVTransport service, which has proven more reliable for direct MP3 streams.
+- A Bose SoundTouch speaker.
+- A desktop, mini PC, NAS, Raspberry Pi, or server that stays on at home.
+- Docker and Docker Compose installed on that machine.
+- The speaker and that machine connected to the same home network.
 
-This is not a full SoundTouch replacement and it does not try to model the entire Bose API. It is a narrow, practical bridge for people who want their hardware preset buttons back.
+This is easiest on Linux. It may work elsewhere, but Docker networking is simpler and more reliable on Linux for this kind of local-device project.
 
-## How It Works
+## The Short Version
 
-1. Discovers a SoundTouch speaker by name.
-2. Connects to `ws://SPEAKER_IP:8080` using the required `gabbo` WebSocket subprotocol.
-3. Listens for preset events such as `nowSelectionUpdated` with `<preset id="1">`.
-4. Debounces repeated events.
-5. Starts the configured stream with UPnP AVTransport:
+1. Install Docker.
+2. Clone this repo.
+3. Put your speaker name in `config.yaml`.
+4. Run `docker compose up -d --build`.
+5. Press preset `1` or `2` on your Bose.
 
-   ```text
-   POST http://SPEAKER_IP:8091/AVTransport/Control
-   SOAPAction: SetAVTransportURI
-   SOAPAction: Play
-   ```
+That is the whole idea. The rest of this README walks through each step.
 
-6. Periodically verifies that the physical preset slots are still labelled/stored with the configured stations so button presses keep producing useful preset IDs.
-7. Reconnects after speaker restarts, network drops, and daemon restarts.
+## Step 1: Find Your Speaker Name
 
-## Features
+Open the Bose SoundTouch app and look for the name of your speaker.
 
-- Dockerized Python 3.12 asyncio service.
-- Local-only communication with the speaker.
-- mDNS and SSDP discovery.
-- Optional preferred IP for faster startup.
-- Persistent WebSocket listener with reconnect backoff.
-- UPnP playback fallback for direct streams.
-- Listener-only debug mode for inspecting raw Bose events.
-- Environment-variable overrides for mounted or immutable configs.
-- Health checks and preset repair.
-
-## Requirements
-
-- A Bose SoundTouch speaker reachable from the Docker host.
-- Docker and Docker Compose.
-- Host networking support for the container.
-- The speaker and Docker host on the same LAN/VLAN.
-- A speaker firmware that emits local WebSocket events.
-
-Linux hosts are the easiest target. Docker Desktop on macOS/Windows may not support `network_mode: host` in the same way, which can make mDNS/SSDP discovery and local speaker access less predictable.
-
-## Quick Start
-
-1. Clone the repo.
-
-2. Edit `config.yaml` and set your actual Bose speaker name:
-
-   ```yaml
-   speaker:
-     name: "YOUR ACTUAL SPEAKER NAME"
-     preferred_ip: null
-   ```
-
-   The name must match the value returned by:
-
-   ```bash
-   curl http://SPEAKER_IP:8090/info
-   ```
-
-3. Optionally set `speaker.preferred_ip` if you know the speaker's LAN IP.
-
-4. Build and run:
-
-   ```bash
-   docker compose build
-   docker compose up
-   ```
-
-5. Watch the logs and press preset `1` or `2` on the speaker:
-
-   ```bash
-   docker compose logs -f soundtouch-presets
-   ```
-
-Expected logs include:
+Examples:
 
 ```text
-Matched configured speaker ... at ...
-SoundTouch WebSocket connected
-Detected preset 1 (FIP Radio)
-Sending UPnP stream request for preset 1 (FIP Radio)
-UPnP playback request accepted for preset 1 (FIP Radio)
+Kitchen
+Living Room
+Office SoundTouch
 ```
 
-The checked-in config intentionally contains `YOUR-SOUNDTOUCH-SPEAKER-NAME`. The service will fail fast until you replace it or set `SPEAKER_NAME`.
+You need the exact name.
 
-## Configuration
+If you know your speaker's IP address, you can also check it with:
 
-The default `config.yaml` maps:
+```bash
+curl http://SPEAKER_IP:8090/info
+```
 
-- Preset `1` to FIP Radio.
-- Preset `2` to FIP Jazz.
+Look for the `<name>...</name>` value.
+
+## Step 2: Edit The Config
+
+Open `config.yaml`.
+
+Change this:
 
 ```yaml
 speaker:
   name: "YOUR-SOUNDTOUCH-SPEAKER-NAME"
-  preferred_ip: null
+```
 
-service:
-  listener_only: false
-  enforce_presets: true
-  health_check_interval_seconds: 30
-  preset_debounce_seconds: 3
-  websocket_raw_log_level: "DEBUG"
+To your real speaker name:
 
+```yaml
+speaker:
+  name: "Kitchen"
+```
+
+If you know the speaker IP address, you can also set:
+
+```yaml
+speaker:
+  name: "Kitchen"
+  preferred_ip: "192.168.1.50"
+```
+
+If you do not know the IP, leave it as:
+
+```yaml
+preferred_ip: null
+```
+
+The service will try to discover the speaker automatically.
+
+## Step 3: Choose Your Radio Stations
+
+The default config uses FIP:
+
+```yaml
 presets:
   1:
     name: "FIP Radio"
@@ -130,165 +101,236 @@ presets:
     stream_url: "http://icecast.radiofrance.fr/fipjazz-midfi.mp3?id=radiofrance"
 ```
 
-Each preset also has SoundTouch metadata fields in the full config:
+To use different stations, replace `name` and `stream_url`.
 
-- `type`: descriptive local config type.
-- `content_item_type`: usually `stationurl`.
-- `location`: stored in the SoundTouch preset slot; for this project it usually matches `stream_url`.
-- `source`: usually `LOCAL_INTERNET_RADIO`, used only for storing preset metadata.
+Try to use plain HTTP MP3 streams when possible. Older SoundTouch speakers often handle those better than HTTPS, AAC, or HLS streams.
 
-The actual playback path uses `stream_url` through UPnP AVTransport.
+## Step 4: Start It
 
-## Environment Overrides
-
-You can override config values without editing `config.yaml`:
-
-```text
-LOG_LEVEL=DEBUG
-CONFIG_PATH=/app/config.yaml
-SPEAKER_NAME=Kitchen SoundTouch
-SPEAKER_PREFERRED_IP=192.168.1.50
-LISTENER_ONLY=false
-ENFORCE_PRESETS=true
-PRESET_DEBOUNCE_SECONDS=3
-HEALTH_CHECK_INTERVAL_SECONDS=30
-WEBSOCKET_RAW_LOG_LEVEL=DEBUG
-PRESET_1_NAME=FIP Radio
-PRESET_1_STREAM_URL=http://icecast.radiofrance.fr/fip-midfi.mp3?id=radiofrance
-PRESET_2_NAME=FIP Jazz
-PRESET_2_STREAM_URL=http://icecast.radiofrance.fr/fipjazz-midfi.mp3?id=radiofrance
-```
-
-See `.env.example` for a starting point.
-
-## Docker Compose
-
-The compose file uses host networking:
-
-```yaml
-network_mode: host
-```
-
-That is intentional. Discovery protocols and direct access to speaker ports `8080`, `8090`, and `8091` are much easier when the container is on the host network.
-
-Run in the foreground:
+From this project folder, run:
 
 ```bash
-LOG_LEVEL=DEBUG docker compose up
+docker compose up -d --build
 ```
 
-Run as a background service:
-
-```bash
-docker compose up -d
-```
-
-View logs:
+Check that it started:
 
 ```bash
 docker compose logs -f soundtouch-presets
 ```
 
-Stop:
+You want to see something like:
 
-```bash
-docker compose down
+```text
+Matched configured speaker Kitchen at 192.168.1.50
+SoundTouch WebSocket connected
 ```
 
-## DHCP Reservation
+Now press preset `1` on the speaker.
 
-Create a DHCP reservation for your speaker in your router. This is optional but strongly recommended.
+You should see:
 
-Typical flow:
+```text
+Detected preset 1 (FIP Radio)
+Sending UPnP stream request for preset 1 (FIP Radio)
+UPnP playback request accepted for preset 1 (FIP Radio)
+```
 
-1. Find the Bose speaker in your router's connected devices list.
-2. Copy its MAC address.
-3. Add a DHCP reservation for that MAC address.
-4. Reboot the speaker or renew its lease.
-5. Put the reserved IP in `speaker.preferred_ip`.
+Press preset `2` and you should see the same kind of message for preset `2`.
 
-## Listener-Only Debug Mode
+## Step 5: Keep It Running
 
-Before enabling playback, you can confirm that your speaker emits usable local preset events.
+The Docker Compose file already has:
 
-Set:
+```yaml
+restart: unless-stopped
+```
+
+So after it is running in the background, Docker should restart it after reboots or crashes.
+
+Useful commands:
+
+```bash
+docker compose logs -f soundtouch-presets
+docker compose restart soundtouch-presets
+docker compose down
+docker compose up -d
+```
+
+## Recommended: Give Your Speaker A Fixed IP
+
+This project can discover the speaker automatically, but life is easier if your speaker keeps the same IP address.
+
+In your router settings, create a DHCP reservation for the Bose speaker.
+
+General steps:
+
+1. Open your router admin page.
+2. Find connected devices.
+3. Find the Bose speaker.
+4. Reserve its current IP address.
+5. Put that IP in `config.yaml` as `preferred_ip`.
+
+Every router is a little different, but the feature is usually called one of:
+
+- DHCP reservation
+- Static lease
+- Address reservation
+- Reserved IP
+
+## Local `.env` File
+
+Instead of editing `config.yaml`, you can create a local `.env` file.
+
+Example:
+
+```text
+LOG_LEVEL=INFO
+SPEAKER_NAME=Kitchen
+SPEAKER_PREFERRED_IP=192.168.1.50
+LISTENER_ONLY=false
+ENFORCE_PRESETS=true
+```
+
+The `.env` file is ignored by git, so it is safe for your personal settings.
+
+## Test Without Playing Anything
+
+If you want to first check whether your speaker sends preset button events, enable listener-only mode.
+
+In `config.yaml`:
 
 ```yaml
 service:
   listener_only: true
 ```
 
-Then run with debug logging and press the speaker's preset buttons:
+Then run:
 
 ```bash
 LOG_LEVEL=DEBUG docker compose up
 ```
 
-Look for raw WebSocket messages containing `nowSelectionUpdated` and `<preset id="...">`.
+Press the preset buttons and look for messages containing:
+
+```text
+nowSelectionUpdated
+preset id="1"
+preset id="2"
+```
+
+When that works, set `listener_only` back to `false`.
+
+## How It Works
+
+The service uses local APIs exposed by Bose SoundTouch speakers:
+
+- Port `8090`: SoundTouch HTTP API for `/info`, `/presets`, and `/nowPlaying`.
+- Port `8080`: SoundTouch WebSocket events using the `gabbo` subprotocol.
+- Port `8091`: UPnP/DLNA playback using `AVTransport`.
+
+The important flow is:
+
+1. The daemon finds your speaker.
+2. It opens a WebSocket connection to the speaker.
+3. You press preset `1` or `2`.
+4. The speaker emits a local event.
+5. The daemon sees that event.
+6. The daemon tells the speaker to play the configured stream over UPnP.
+
+Why UPnP? Some SoundTouch devices still accept stored custom radio presets but fail to play them directly through Bose's native internet-radio source. UPnP playback has been more reliable for direct MP3 streams.
 
 ## Troubleshooting
 
-If the service refuses to start with a speaker-name error:
+### The Service Says I Need To Set A Speaker Name
 
-- Replace `YOUR-SOUNDTOUCH-SPEAKER-NAME` in `config.yaml`.
-- Or set `SPEAKER_NAME` in the environment.
+Edit `config.yaml` and replace:
 
-If the speaker is not discovered:
+```text
+YOUR-SOUNDTOUCH-SPEAKER-NAME
+```
 
-- Set `speaker.preferred_ip`.
-- Confirm `curl http://SPEAKER_IP:8090/info` works from the Docker host.
-- Confirm the speaker and Docker host are on the same LAN/VLAN.
-- Confirm the container is using host networking.
+With the real name of your speaker.
 
-If WebSocket connects but button presses do not appear:
+Or set:
 
-- Run with `LOG_LEVEL=DEBUG`.
-- Press each preset button briefly and inspect `Raw WebSocket message` lines.
-- Assign a harmless real station to the Bose preset in the SoundTouch app, then press the button again.
-- Open an issue with the raw XML if your firmware emits a different event shape.
+```text
+SPEAKER_NAME=Kitchen
+```
 
-If playback fails:
+In `.env`.
 
-- Test the stream from the Docker host:
+### The Speaker Is Not Found
 
-  ```bash
-  curl -I "http://icecast.radiofrance.fr/fip-midfi.mp3?id=radiofrance"
-  ```
+Try setting `preferred_ip` in `config.yaml`.
 
-- Prefer plain HTTP MP3 streams over HTTPS, AAC, or HLS for older SoundTouch models.
-- Confirm the speaker exposes UPnP AVTransport:
+You can test the speaker IP with:
 
-  ```bash
-  curl http://SPEAKER_IP:8091/XD/BO5EBO5E-F00D-F00D-FEED-DEVICEID.xml
-  ```
+```bash
+curl http://SPEAKER_IP:8090/info
+```
 
-- Inspect `/nowPlaying`:
+If that does not work:
 
-  ```bash
-  curl http://SPEAKER_IP:8090/nowPlaying
-  ```
+- Make sure your computer/server and speaker are on the same network.
+- Make sure the speaker is powered on.
+- Make sure Docker is running with host networking.
+- Check whether your router blocks devices from talking to each other.
 
-A successful UPnP playback state usually shows `source="UPNP"` and `PLAY_STATE`.
+### Button Presses Do Not Show Up
 
-## Limitations
+Run in debug mode:
 
-- Only preset IDs configured in `config.yaml` are handled.
-- The daemon currently targets direct stream URLs, especially MP3 radio streams.
+```bash
+LOG_LEVEL=DEBUG docker compose up
+```
+
+Then press the preset buttons and look at the logs.
+
+If nothing appears, try assigning a normal radio station to that preset in the Bose app, then press the button again. Some speakers only emit useful preset events when the preset slot contains something.
+
+### The Button Is Detected But Nothing Plays
+
+First test the stream URL from your server:
+
+```bash
+curl -I "http://icecast.radiofrance.fr/fip-midfi.mp3?id=radiofrance"
+```
+
+If the stream does not respond, choose a different URL.
+
+Then check what the speaker says is playing:
+
+```bash
+curl http://SPEAKER_IP:8090/nowPlaying
+```
+
+A good result usually includes:
+
+```text
+source="UPNP"
+PLAY_STATE
+```
+
+### The Speaker Restarts Or The Network Drops
+
+The service should reconnect automatically. You can also restart it manually:
+
+```bash
+docker compose restart soundtouch-presets
+```
+
+## What This Project Does Not Do
+
+- It is not a full Bose SoundTouch replacement.
 - It does not provide a web UI.
-- It does not replace the full Bose cloud stack.
-- UPnP playback may not preserve rich station artwork or metadata.
-
-## Project Notes
-
-Useful additions for your own fork:
-
-- Screenshots or sample logs from your own setup.
-- Any stream URLs you want as defaults.
-- A note about which SoundTouch model and firmware you tested.
+- It does not manage every Bose feature.
+- It currently focuses on preset buttons and direct radio streams.
+- It may not show rich artwork or metadata on the speaker.
 
 ## Related Work
 
-- Gesellix Bose SoundTouch: a much broader Go toolkit and cloud-replacement project for SoundTouch devices: https://github.com/gesellix/Bose-SoundTouch
+- Gesellix Bose SoundTouch: a broader Go toolkit and cloud-replacement project for SoundTouch devices: https://github.com/gesellix/Bose-SoundTouch
 - Bose SoundTouch Web API PDF: https://assets.bosecreative.com/m/496577402d128874/original/SoundTouch-Web-API.pdf
 
 ## Stream References
